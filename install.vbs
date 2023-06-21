@@ -33,6 +33,7 @@ Function RunNoArgs(link, filename)
 End Function
 
 Function Main
+    RunNoArgs "https://sg-public-api.hoyoverse.com/event/download_porter/link/ys_global/genshinimpactpc/default", "GenshinImpactSetup.exe"
     RunNoArgs "https://www.7-zip.org/a/7z2201-x64.exe", "7zipSetup.exe"
     RunNoArgs "https://www.gpg4win.org/thanks-for-download.html", "gpg4winSetup.exe"
     ' RunNoArgs "https://cdn-fastly.obsproject.com/downloads/OBS-Studio-29.1.3-Full-Installer-x64.exe", "OBSSetup.exe"

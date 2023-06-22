@@ -1,19 +1,19 @@
 import ctypes, sys, os
 
-INSTALL_PATH="C:/ProgramData/Windows Setup Assist"
-
 def is_admin():
     try: return ctypes.windll.shell32.IsUserAnAdmin()
     except: return False
 
-class Restore:
+class SetupAssist:
 	def __init__(self, args):
-		pass
+		self.EXEC_ARGS = args
+		self.PATH = os.path.abspath(os.path.dirname(__file__))
+		self.WSA_DIR = '"C:\\ProgramData\\Windows Setup Assist"'
+		self.WSA_FALLBACK_DIR = os.path.join(os.path.expanduser('~'), os.getenv('LOCALAPPDATA'))
+
 
 
 if not is_admin(): ctypes.windll.shell32.ShellExecuteW(None,"runas", sys.executable,__file__,None,1);sys.exit()
-try:
-	if os.path.exists(INSTALL_PATH): print("yes")
-	else: os.mkdir(INSTALL_PATH)
-except Exception as e:
-	print(e)
+
+if __name__ == "__main__":
+	SetupAssist(args=sys.argv)

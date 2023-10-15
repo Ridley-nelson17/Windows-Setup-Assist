@@ -1,4 +1,4 @@
 # CWS
 Custom Windows Setup - Direct install links
 
-> **Outdated Repository, see StellaRestoreLib**
+> **Outdated Branch, see Stella**

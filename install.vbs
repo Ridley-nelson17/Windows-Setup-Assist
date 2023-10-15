@@ -1,55 +1,84 @@
-Option Explicit
-Dim WSH, FSO, PATH: Set WSH = WSCript.CreateObject("wscript.shell") : Set FSO = CreateObject("Scripting.FileSystemObject")
-PATH = "C:\ProgramData\WindowsSetupRestore"
+$PSDefaultParameterValues['Stop-Process:ErrorAction'] = [System.Management.Automation.ActionPreference]::SilentlyContinue
 
-If (WScript.Arguments.length = 0) Then
-   Dim app: Set app = CreateObject("Shell.Application")
-   app.ShellExecute "wscript.exe", Chr(34) & WScript.ScriptFullName & Chr(34) & " uac", "", "runas", 1
-Else
-    Main
-End If
-Function DownloadFile(url, filename)
-     If (FSO.FolderExists(PATH)) Then
-        WSH.Run "powershell -WindowStyle hidden cd " & PATH & "; Import-Module bitstransfer; start-bitstransfer -source " & url & " -destination " & PATH & "\" & filename & "; Start-Process -FilePath " & filename
-    Else
-        FSO.CreateFolder PATH
-        DownloadFile url, filename
-    End If
-End Function
+function Get-File
+{
+	param (
+		[Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+		[ValidateNotNullOrEmpty()]
+		[System.Uri]
+		$Uri,
+		[Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+		[ValidateNotNullOrEmpty()]
+		[System.IO.FileInfo]
+		$TargetFile,
+		[Parameter(ValueFromPipelineByPropertyName)]
+		[ValidateNotNullOrEmpty()]
+		[Int32]
+		$BufferSize = 1,
+		[Parameter(ValueFromPipelineByPropertyName)]
+		[ValidateNotNullOrEmpty()]
+		[ValidateSet('KB, MB')]
+		[String]
+		$BufferUnit = 'MB',
+		[Parameter(ValueFromPipelineByPropertyName)]
+		[ValidateNotNullOrEmpty()]
+		[ValidateSet('KB, MB')]
+		[Int32]
+		$Timeout = 10000
+	)
 
-Function RunWithArgs
-    If (FSO.FolderExists(PATH))
-End Function
+	[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+	$useBitTransfer = $null -ne (Get-Module -Name BitsTransfer -ListAvailable) -and ($PSVersionTable.PSVersion.Major -le 5) -and ((Get-Service -Name BITS).StartType -ne [System.ServiceProcess.ServiceStartMode]::Disabled)
 
+	if ($useBitTransfer)
+	{
+		Write-Information -MessageData 'Using a fallback BitTransfer method since you are running Windows PowerShell'
+		Start-BitsTransfer -Source $Uri -Destination "$($TargetFile.FullName)"
+	}
+	else
+	{
+		$request = [System.Net.HttpWebRequest]::Create($Uri)
+		$request.set_Timeout($Timeout) #15 second timeout
+		$response = $request.GetResponse()
+		$totalLength = [System.Math]::Floor($response.get_ContentLength() / 1024)
+		$responseStream = $response.GetResponseStream()
+		$targetStream = New-Object -TypeName ([System.IO.FileStream]) -ArgumentList "$($TargetFile.FullName)", Create
+		switch ($BufferUnit)
+		{
+			'KB' { $BufferSize = $BufferSize * 1024 }
+			'MB' { $BufferSize = $BufferSize * 1024 * 1024 }
+			Default { $BufferSize = 1024 * 1024 }
+		}
+		Write-Verbose -Message "Buffer size: $BufferSize B ($($BufferSize/("1$BufferUnit")) $BufferUnit)"
+		$buffer = New-Object byte[] $BufferSize
+		$count = $responseStream.Read($buffer, 0, $buffer.length)
+		$downloadedBytes = $count
+		$downloadedFileName = $Uri -split '/' | Select-Object -Last 1
+		while ($count -gt 0)
+		{
+			$targetStream.Write($buffer, 0, $count)
+			$count = $responseStream.Read($buffer, 0, $buffer.length)
+			$downloadedBytes = $downloadedBytes + $count
+			Write-Progress -Activity "Downloading file '$downloadedFileName'" -Status "Downloaded ($([System.Math]::Floor($downloadedBytes/1024))K of $($totalLength)K): " -PercentComplete ((([System.Math]::Floor($downloadedBytes / 1024)) / $totalLength) * 100)
+		}
+		
+		Write-Progress -Activity "Finished downloading file '$downloadedFileName'"
+		
+		$targetStream.Flush()
+		$targetStream.Close()
+		$targetStream.Dispose()
+		$responseStream.Dispose()
+	}
+}
 
-Function RunNoArgs(link, filename)
-    Select Case MsgBox("Install """ & filename & """?", vbYesNo + vbQuestion, "Windows Restore Setup")
-        Case vbYes
-            MsgBox "Installing """ & filename & """.", 0+64
-            DownloadFile link, filename
-        Case vbNo
-            MsgBox "Skipping """ & filename & """.", 0+48
-    End Select
-End Function
-
-Function Main
-    RunNoArgs "https://sg-public-api.hoyoverse.com/event/download_porter/link/ys_global/genshinimpactpc/default", "GenshinImpactSetup.exe"
-    RunNoArgs "https://www.7-zip.org/a/7z2201-x64.exe", "7zipSetup.exe"
-    RunNoArgs "https://www.gpg4win.org/thanks-for-download.html", "gpg4winSetup.exe"
-    ' RunNoArgs "https://cdn-fastly.obsproject.com/downloads/OBS-Studio-29.1.3-Full-Installer-x64.exe", "OBSSetup.exe"
-    RunNoArgs "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi", "EpicGamesLauncherSetup.msi"
-    ' DownloadFile "https://ubi.li/4vxt9", "UbisoftConnectSetup.exe"
-    RunNoArgs "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe", "SteamSetup.exe"
-    RunNoArgs "https://central.github.com/deployments/desktop/desktop/latest/win32", "GithubDesktopSetup.exe"
-    RunNoArgs "https://launcher.mojang.com/download/MinecraftInstaller.exe", "MinecraftLauncherSetup.exe"
-    WSH.Run "powershell [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-Expression ""& { $(Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/mrpond/BlockTheSpot/master/install.ps1') } -UninstallSpotifyStoreEdition -UpdateSpotify"""
-
-    ' DownloadFile "https://github.com/Ridley-nelson17/Windows-Setup-Assist/blob/main/ChromeSetup.exe?raw=true", "ChromeSetup.exe"
-    ' DownloadFile "https://download.scdn.co/SpotifyFullSetup.exe", "SpotifySetup.exe"
-    RunNoArgs "https://discord.com/api/downloads/distributions/app/installers/latest?channel=stable&platform=win&arch=x86", "DiscordSetup.exe"
-'  WSH.Run "powershell cd " & PATH & "; (new-object System.Net.WebClient).DownloadFile(https://www.google.com/chrome/thank-you.html?statcb=0&installdataindex=empty&defaultbrowser=0'','" & PATH & "\""Google Chrome"".exe')"
-End Function
-
-Function DeleteTempFiles
-    DeleteFolder PATH
-End Function
+try
+{
+	$spotifySetupFilePath = Join-Path -Path $PWD -ChildPath 'SpotifyFullSetup.exe'
+	$uri = 'https://download.scdn.co/SpotifyFullSetup.exe'
+	Get-File -Uri $uri -TargetFile "$spotifySetupFilePath"
+}
+catch
+{
+	Write-Output $_
+ 	Start-Sleep
+}
